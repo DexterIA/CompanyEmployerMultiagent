@@ -5,43 +5,45 @@ import java.awt.event.*;
 import javax.swing.*;
 
 
-class AddPostGui extends JFrame {
-    private CompanyAgent myAgent;
+class AddAnketGui extends JFrame {
+    private EmployerAgent myAgent;
 
-    private JTextField ratingField, oldField, salaryField;
+    private JTextField nameField, ratingField, ageField;
 
-    AddPostGui(CompanyAgent a) {
+    AddAnketGui(EmployerAgent a) {
         super(a.getLocalName());
 
         myAgent = a;
 
         JPanel p = new JPanel();
         p.setLayout(new GridLayout(3, 2));
+        p.add(new JLabel(("Name:")));
+        nameField = new JTextField(15);
+        p.add(nameField);
         p.add(new JLabel("Rating:"));
         ratingField = new JTextField(15);
         p.add(ratingField);
-        p.add(new JLabel("Age limit:"));
-        oldField = new JTextField(15);
-        p.add(oldField);
-        p.add(new JLabel("Salary:"));
-        salaryField = new JTextField(15);
-        p.add(salaryField);
+        p.add(new JLabel("Age:"));
+        ageField = new JTextField(15);
+        p.add(ageField);
         getContentPane().add(p, BorderLayout.CENTER);
 
-        JButton addButton = new JButton("Add post");
+        JButton addButton = new JButton("Add resume");
         addButton.addActionListener( new ActionListener() {
             public void actionPerformed(ActionEvent ev) {
                 try {
+                    String name = nameField.getText().trim();
                     String rating = ratingField.getText().trim();
-                    String price = oldField.getText().trim();
-                    String salary = salaryField.getText().trim();
-                    myAgent.updateCatalogue(Integer.parseInt(rating), Integer.parseInt(price), Integer.parseInt(salary));
+                    String age = ageField.getText().trim();
+                    myAgent.onAddedAnket(name, Integer.parseInt(rating), Integer.parseInt(age));
+                    nameField.setText("");
                     ratingField.setText("");
-                    oldField.setText("");
-                    salaryField.setText("");
+                    ageField.setText("");
                 }
                 catch (Exception e) {
-                    JOptionPane.showMessageDialog(AddPostGui.this, "Invalid values. "+e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(AddAnketGui.this,
+                            "Invalid values. "+e.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
                 }
             }
         } );

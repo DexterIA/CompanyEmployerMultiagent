@@ -11,88 +11,107 @@ import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 
 public class EmployerAgent extends Agent {
-    // The title of the book to buy
-    private String targetBookTitle;
-    // The list of known seller agents
-    private AID[] sellerAgents;
+
+    // The list of known company agents
+    private AID[] companyAgents;
+
+    private AddAnketGui myGui;
 
     // Put agent initializations here
     protected void setup() {
         // Printout a welcome message
-        System.out.println("Hallo! I'am "+getAID().getName()+" is ready.\nI would like to work in your company");
+        myGui = new AddAnketGui(this);
+        myGui.showGui();
 
-        // Get the title of the book to buy as a start-up argument
-        Object[] args = getArguments();
-        if (args != null && args.length > 0) {
-            targetBookTitle = (String) args[0];
-            System.out.println("Target book is "+targetBookTitle);
-
-            // Add a TickerBehaviour that schedules a request to seller agents every minute
-            addBehaviour(new TickerBehaviour(this, 60000) {
-                protected void onTick() {
-                    System.out.println("Trying to buy "+targetBookTitle);
-                    // Update the list of seller agents
-                    DFAgentDescription template = new DFAgentDescription();
-                    ServiceDescription sd = new ServiceDescription();
-                    sd.setType("book-selling");
-                    template.addServices(sd);
-                    try {
-                        DFAgentDescription[] result = DFService.search(myAgent, template);
-                        System.out.println("Found the following seller agents:");
-                        sellerAgents = new AID[result.length];
-                        for (int i = 0; i < result.length; ++i) {
-                            sellerAgents[i] = result[i].getName();
-                            System.out.println(sellerAgents[i].getName());
-                        }
-                    }
-                    catch (FIPAException fe) {
-                        fe.printStackTrace();
-                    }
-
-                    // Perform the request
-                    myAgent.addBehaviour(new RequestPerformer());
-                }
-            } );
-        }
-        else {
-            // Make the agent terminate
-            System.out.println("No target book title specified");
-            doDelete();
+        // Register the company-employer service in the yellow pages
+        DFAgentDescription dfd = new DFAgentDescription();
+        dfd.setName(getAID());
+        ServiceDescription sd = new ServiceDescription();
+        sd.setType("employer");
+        sd.setName("JADE-employer");
+        dfd.addServices(sd);
+        try {
+            DFService.register(this, dfd);
+        } catch (FIPAException fe) {
+            fe.printStackTrace();
         }
     }
+
 
     // Put agent clean-up operations here
     protected void takeDown() {
+        // Deregister from the yellow pages
+        try {
+            DFService.deregister(this);
+        } catch (FIPAException fe) {
+            fe.printStackTrace();
+        }
+        // Close the GUI
+        myGui.dispose();
+
         // Printout a dismissal message
-        System.out.println("Buyer-agent "+getAID().getName()+" terminating.");
+        System.out.println("Employer-agent " + getAID().getName() + " terminating.");
+    }
+
+    public void onAddedAnket(final String name, final int rating, final int age) {
+        addBehaviour(new OneShotBehaviour() {
+            public void action() {
+
+                System.out.println("New employer was added, his name - " + name + "\n his rating: " + rating + "\n and have " + age + " old");
+                // Update the list of seller agents
+                DFAgentDescription template = new DFAgentDescription();
+                ServiceDescription sd = new ServiceDescription();
+                sd.setType("company");
+                template.addServices(sd);
+                try {
+                    DFAgentDescription[] result = DFService.search(myAgent, template);
+                    System.out.println("Found the following company agents:");
+                    companyAgents = new AID[result.length];
+                    for (int i = 0; i < result.length; ++i) {
+                        companyAgents[i] = result[i].getName();
+                        System.out.println(companyAgents[i].getName());
+                    }
+                } catch (FIPAException fe) {
+                    fe.printStackTrace();
+                }
+
+                // Perform the request
+                myAgent.addBehaviour(new RequestPerformer(name, rating, age));
+            }
+        });
     }
 
     /**
-     Inner class RequestPerformer.
-     This is the behaviour used by Book-buyer agents to request seller
-     agents the target book.
+     * Inner class RequestPerformer.
+     * This is the behaviour used by Book-buyer agents to request seller
+     * agents the target book.
      */
     private class RequestPerformer extends Behaviour {
-        private AID bestSeller; // The agent who provides the best offer
-        private int bestPrice;  // The best offered price
-        private int repliesCnt = 0; // The counter of replies from seller agents
+        private int result = 0; // The counter of replies from seller agents
         private MessageTemplate mt; // The template to receive replies
         private int step = 0;
+        private String data;
+        public String name;
+
+        RequestPerformer(String n, int r, int a) {
+            name = n;
+            data = n + "-" + Integer.toString(r) + "-" + Integer.toString(a);
+        }
 
         public void action() {
             switch (step) {
                 case 0:
                     // Send the cfp to all sellers
                     ACLMessage cfp = new ACLMessage(ACLMessage.CFP);
-                    for (int i = 0; i < sellerAgents.length; ++i) {
-                        cfp.addReceiver(sellerAgents[i]);
+                    for (int i = 0; i < companyAgents.length; ++i) {
+                        cfp.addReceiver(companyAgents[i]);
                     }
-                    cfp.setContent(targetBookTitle);
-                    cfp.setConversationId("book-trade");
-                    cfp.setReplyWith("cfp"+System.currentTimeMillis()); // Unique value
+                    cfp.setContent(data);
+                    cfp.setConversationId("employer-company");
+                    cfp.setReplyWith("cfp" + System.currentTimeMillis()); // Unique value
                     myAgent.send(cfp);
                     // Prepare the template to get proposals
-                    mt = MessageTemplate.and(MessageTemplate.MatchConversationId("book-trade"),
+                    mt = MessageTemplate.and(MessageTemplate.MatchConversationId("employer-company"),
                             MessageTemplate.MatchInReplyTo(cfp.getReplyWith()));
                     step = 1;
                     break;
@@ -103,54 +122,16 @@ public class EmployerAgent extends Agent {
                         // Reply received
                         if (reply.getPerformative() == ACLMessage.PROPOSE) {
                             // This is an offer
-                            int price = Integer.parseInt(reply.getContent());
-                            if (bestSeller == null || price < bestPrice) {
-                                // This is the best offer at present
-                                bestPrice = price;
-                                bestSeller = reply.getSender();
+                            if (reply.getContent().equals("Allowed")) {
+                                System.out.println("Yea! My name is " + name + " and I've got this job! :)");
+                                result = 1;
+                            } else {
+                                System.out.println("Sucks! My name is " + name + " and I was refused :(");
+                                result = 2;
                             }
                         }
-                        repliesCnt++;
-                        if (repliesCnt >= sellerAgents.length) {
-                            // We received all replies
-                            step = 2;
-                        }
-                    }
-                    else {
-                        block();
-                    }
-                    break;
-                case 2:
-                    // Send the purchase order to the seller that provided the best offer
-                    ACLMessage order = new ACLMessage(ACLMessage.ACCEPT_PROPOSAL);
-                    order.addReceiver(bestSeller);
-                    order.setContent(targetBookTitle);
-                    order.setConversationId("book-trade");
-                    order.setReplyWith("order"+System.currentTimeMillis());
-                    myAgent.send(order);
-                    // Prepare the template to get the purchase order reply
-                    mt = MessageTemplate.and(MessageTemplate.MatchConversationId("book-trade"),
-                            MessageTemplate.MatchInReplyTo(order.getReplyWith()));
-                    step = 3;
-                    break;
-                case 3:
-                    // Receive the purchase order reply
-                    reply = myAgent.receive(mt);
-                    if (reply != null) {
-                        // Purchase order reply received
-                        if (reply.getPerformative() == ACLMessage.INFORM) {
-                            // Purchase successful. We can terminate
-                            System.out.println(targetBookTitle+" successfully purchased from agent "+reply.getSender().getName());
-                            System.out.println("Price = "+bestPrice);
-                            myAgent.doDelete();
-                        }
-                        else {
-                            System.out.println("Attempt failed: requested book already sold.");
-                        }
 
-                        step = 4;
-                    }
-                    else {
+                    } else {
                         block();
                     }
                     break;
@@ -158,10 +139,7 @@ public class EmployerAgent extends Agent {
         }
 
         public boolean done() {
-            if (step == 2 && bestSeller == null) {
-                System.out.println("Attempt failed: "+targetBookTitle+" not available for sale");
-            }
-            return ((step == 2 && bestSeller == null) || step == 4);
+            return result !=0;
         }
-    }  // End of inner class RequestPerformer
+    }
 }

@@ -9,41 +9,43 @@ import jade.domain.FIPAException;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 
-import java.util.*;
-
 public class CompanyAgent extends Agent {
 
-    public class post {
+    public class Post {
         int rating;
         int old;
         int salary;
+        boolean enabled;
 
-        post(int r,int o,int s) {
+        Post(int r,int o,int s) {
             rating = r;
             old = o;
             salary = s;
+            enabled = true;
         }
     }
-    // The catalogue of books for sale (maps the title of a book to its price)
-    private Hashtable catalogue;
+
+    private Post[] posts;
+    private int counter;
     // The GUI by means of which the user can add books in the catalogue
     private AddPostGui myGui;
 
     // Put agent initializations here
     protected void setup() {
-        // Create the catalogue
-        catalogue = new Hashtable();
+
+        posts = new Post[1000];
+        counter = 0;
 
         // Create and show the GUI
         myGui = new AddPostGui(this);
         myGui.showGui();
 
-        // Register the book-selling service in the yellow pages
+        // Register the company-employer service in the yellow pages
         DFAgentDescription dfd = new DFAgentDescription();
         dfd.setName(getAID());
         ServiceDescription sd = new ServiceDescription();
-        sd.setType("add-post");
-        sd.setName("JADE-book-trading");
+        sd.setType("company");
+        sd.setName("JADE-company-employer");
         dfd.addServices(sd);
         try {
             DFService.register(this, dfd);
@@ -55,8 +57,6 @@ public class CompanyAgent extends Agent {
         // Add the behaviour serving queries from buyer agents
         addBehaviour(new OfferRequestsServer());
 
-        // Add the behaviour serving purchase orders from buyer agents
-        addBehaviour(new PurchaseOrdersServer());
     }
 
     // Put agent clean-up operations here
@@ -71,28 +71,29 @@ public class CompanyAgent extends Agent {
         // Close the GUI
         myGui.dispose();
         // Printout a dismissal message
-        System.out.println("Seller-agent "+getAID().getName()+" terminating.");
+        System.out.println("CompanyAgent "+getAID().getName()+" terminating.");
     }
 
     /**
-     This is invoked by the GUI when the user adds a new book for sale
+     This is invoked by the GUI when the user adds a new post
      */
     public void updateCatalogue(final int rating, final int old, final int salary) {
         addBehaviour(new OneShotBehaviour() {
             public void action() {
-                catalogue.put(rating, new Integer(old));
-                System.out.println(rating+" inserted into catalogue. Price = "+old);
+                posts[counter] = new Post(rating, old, salary);
+                counter++;
+                System.out.println("Post was inserted with params:\n Rating: " + rating +
+                "\n Age limit: " + old + "\n Salary: " + salary);
             }
         } );
     }
 
     /**
      Inner class OfferRequestsServer.
-     This is the behaviour used by Book-seller agents to serve incoming requests
+     This is the behaviour used by Employer agents to serve incoming requests
      for offer from buyer agents.
-     If the requested book is in the local catalogue the seller agent replies
-     with a PROPOSE message specifying the price. Otherwise a REFUSE message is
-     sent back.
+     If the requested post is in the local catalogue the company agent replies
+     with a PROPOSE message with allowed or denied.
      */
     private class OfferRequestsServer extends CyclicBehaviour {
         public void action() {
@@ -100,19 +101,30 @@ public class CompanyAgent extends Agent {
             ACLMessage msg = myAgent.receive(mt);
             if (msg != null) {
                 // CFP Message received. Process it
-                String title = msg.getContent();
+                String params = msg.getContent();
                 ACLMessage reply = msg.createReply();
 
-                Integer price = (Integer) catalogue.get(title);
-                if (price != null) {
-                    // The requested book is available for sale. Reply with the price
-                    reply.setPerformative(ACLMessage.PROPOSE);
-                    reply.setContent(String.valueOf(price.intValue()));
-                }
-                else {
-                    // The requested book is NOT available for sale.
-                    reply.setPerformative(ACLMessage.REFUSE);
-                    reply.setContent("not-available");
+                String[] parts = params.split("-");
+                String name = parts[0];
+                int rating = Integer.parseInt(parts[1]);
+                int age = Integer.parseInt(parts[2]);
+
+                for (int i = 0; i < counter; i++) {
+                    if (posts[i].enabled) {
+                        if (posts[i].rating <= rating && posts[i].old >= age) {
+                            // The requested book is available for sale. Reply with the price
+                            reply.setPerformative(ACLMessage.PROPOSE);
+                            reply.setContent("Allowed");
+                            System.out.println("Employer " + name + " was employed");
+                            break;
+                        } else {
+                            // The requested book is NOT available for sale.
+                            reply.setPerformative(ACLMessage.REFUSE);
+                            reply.setContent("Denied");
+                            System.out.println("Employer " + name + " does not fit");
+                            break;
+                        }
+                    }
                 }
                 myAgent.send(reply);
             }
@@ -122,38 +134,4 @@ public class CompanyAgent extends Agent {
         }
     }  // End of inner class OfferRequestsServer
 
-    /**
-     Inner class PurchaseOrdersServer.
-     This is the behaviour used by Book-seller agents to serve incoming
-     offer acceptances (i.e. purchase orders) from buyer agents.
-     The seller agent removes the purchased book from its catalogue
-     and replies with an INFORM message to notify the buyer that the
-     purchase has been sucesfully completed.
-     */
-    private class PurchaseOrdersServer extends CyclicBehaviour {
-        public void action() {
-            MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.ACCEPT_PROPOSAL);
-            ACLMessage msg = myAgent.receive(mt);
-            if (msg != null) {
-                // ACCEPT_PROPOSAL Message received. Process it
-                String title = msg.getContent();
-                ACLMessage reply = msg.createReply();
-
-                Integer price = (Integer) catalogue.remove(title);
-                if (price != null) {
-                    reply.setPerformative(ACLMessage.INFORM);
-                    System.out.println(title+" sold to agent "+msg.getSender().getName());
-                }
-                else {
-                    // The requested book has been sold to another buyer in the meanwhile .
-                    reply.setPerformative(ACLMessage.FAILURE);
-                    reply.setContent("not-available");
-                }
-                myAgent.send(reply);
-            }
-            else {
-                block();
-            }
-        }
-    }  // End of inner class OfferRequestsServer
 }
